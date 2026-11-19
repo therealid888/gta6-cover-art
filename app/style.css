@@ -1,12 +1,142 @@
-html, body { margin: 0; height: 100%; background: #f2f0f4; color: #1d1b22; font: 15px/1.4 system-ui, sans-serif; }
-.app { display: flex; gap: 32px; align-items: center; justify-content: center; height: 100%; padding: 24px; box-sizing: border-box; }
-.controls { display: flex; flex-direction: column; gap: 14px; width: 280px; }
-.controls h1 { margin: 0; font-size: 28px; }
-.controls p { margin: 0; color: #5c5866; }
-label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
-input[type=text] { font: inherit; padding: 8px; border: 1px solid #c9c4d1; border-radius: 6px; }
-button { font: inherit; font-weight: 700; padding: 10px; border: 0; border-radius: 6px; background: #1d1b22; color: #fff; cursor: pointer; }
-canvas { width: min(70vh, 60vw); height: min(70vh, 60vw); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2); }
-body.shot-cover .controls { display: none; }
+/* Vice Cover Studio — dark neon editor chrome. The cover itself is painted on
+   canvas by src/cover.js; this file only styles the page around it. */
+@font-face {
+  font-family: 'Anton';
+  src: url('./fonts/Anton-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  background: #120a1c;
+  color: #f4eef7;
+  font: 15px/1.45 system-ui, -apple-system, sans-serif;
+}
+
+.topbar {
+  padding: 18px 28px 12px;
+  border-bottom: 2px solid #ff2e88;
+  background: linear-gradient(90deg, #2b0f3d, #120a1c 60%);
+}
+.topbar h1 {
+  margin: 0;
+  font-family: 'Anton', sans-serif;
+  font-size: 34px;
+  letter-spacing: 2px;
+  color: #fff;
+  text-shadow: 3px 3px 0 #ff2e88, 6px 6px 0 rgba(0, 229, 255, 0.55);
+}
+.topbar h1 span { color: #00e5ff; }
+.topbar p { margin: 4px 0 0; color: #cbb8d6; }
+
+.app {
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 22px 28px 32px;
+}
+.controls { width: 340px; flex: none; display: flex; flex-direction: column; gap: 18px; }
+
+.group {
+  background: #1e1229;
+  border: 1px solid #3a2350;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.group h2 {
+  margin: 0 0 10px;
+  font-family: 'Anton', sans-serif;
+  font-size: 15px;
+  letter-spacing: 2px;
+  color: #ffb347;
+  text-transform: uppercase;
+}
+.hint { margin: 8px 0 0; font-size: 13px; color: #a793b5; }
+
+label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 13px; color: #d9cbe4; }
+input[type=text], select {
+  font: inherit;
+  padding: 8px 10px;
+  color: #f4eef7;
+  background: #120a1c;
+  border: 1px solid #5b3a78;
+  border-radius: 8px;
+}
+input[type=text]:focus, select:focus { outline: 2px solid #ff2e88; }
+input[type=range] { accent-color: #ff2e88; width: 100%; }
+.row { display: flex; gap: 10px; margin-top: 10px; }
+.row > * { flex: 1; min-width: 0; }
+
+.file-label {
+  display: block;
+  padding: 10px;
+  text-align: center;
+  font-weight: 700;
+  color: #120a1c;
+  background: #00e5ff;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.file-label input { display: none; }
+
+.library { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.library img {
+  width: 64px; height: 64px; object-fit: cover;
+  border: 2px solid transparent; border-radius: 8px; cursor: pointer;
+}
+.library img.active { border-color: #ff2e88; box-shadow: 0 0 0 2px #ff2e88; }
+
+.choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.choices button {
+  font: inherit; font-weight: 700; font-size: 13px;
+  padding: 8px 12px;
+  color: #f4eef7;
+  background: #2b1840;
+  border: 1px solid #5b3a78;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.choices button.active { background: #ff2e88; border-color: #ff2e88; color: #fff; }
+.choices button:hover { border-color: #ff2e88; }
+
+button { font: inherit; font-weight: 700; padding: 9px 12px; border: 0; border-radius: 8px; background: #2b1840; color: #fff; cursor: pointer; }
+button:hover { background: #3a2350; }
+button.export {
+  width: 100%;
+  margin-top: 12px;
+  padding: 13px;
+  font-family: 'Anton', sans-serif;
+  font-size: 19px;
+  letter-spacing: 2px;
+  background: linear-gradient(90deg, #ff2e88, #ff7a18);
+  box-shadow: 0 4px 18px rgba(255, 46, 136, 0.45);
+}
+button.export:hover { filter: brightness(1.12); }
+#status { margin: 8px 0 0; min-height: 1.2em; font-size: 13px; color: #7dffb0; }
+
+.preview { position: sticky; top: 16px; text-align: center; }
+.preview canvas {
+  max-width: min(62vh, 46vw);
+  max-height: 78vh;
+  width: auto; height: auto;
+  box-shadow: 0 12px 44px rgba(0, 0, 0, 0.6), 0 0 0 1px #3a2350;
+  border-radius: 4px;
+  cursor: crosshair;
+  touch-action: none;
+}
+.preview .hint { color: #a793b5; }
+
+/* Screenshot scenes: hide the editor chrome, fill the viewport with the cover. */
+body.shot-cover .topbar, body.shot-cover .controls, body.shot-cover .preview .hint { display: none; }
 body.shot-cover .app { padding: 0; }
-body.shot-cover canvas { width: 100vw; height: 100vh; box-shadow: none; }
+body.shot-cover .preview { position: static; }
+body.shot-cover canvas {
+  max-width: none; max-height: none;
+  width: 100vw; height: 100vh;
+  box-shadow: none; border-radius: 0; object-fit: contain;
+  background: #120a1c;
+}
