@@ -1,63 +1,99 @@
-// Fixed scenes for screenshots: ?shot=editor shows the page with sample photos;
-// ?shot=cover shows the cover alone. Query knobs: `photo` (hero sample),
-// `photo2` (second sample), `caption`, `tagline`, `pos`, `layout`, `grade` and
-// `size` (e.g. 1920x1080 — sets the canvas to that export size).
-// window.__shotReady is set once the cover is painted.
-import { LAYOUTS, GRADES, PANEL_COUNT } from './cover.js';
+// Vice Cover Studio — shot scenes.
+//
+// Reads the page's query string and turns it into a cover state for
+// screenshots and tests. Supported knobs:
+//
+//   ?shot=editor|cover   which scene to show (default: editor)
+//   ?size=1080x1350      cover-scene canvas size (default: 1080x1350)
+//   ?layout=hero|triple|grid|single
+//   ?grade=sunset|neon|golden|ocean|noir
+//   ?photo=pier          sample photo for panel 0 (pier or boulevard)
+//   ?photo2=, ?photo3=, ?photo4=   sample photos for panels 1..3
+//   ?caption=...         title caption
+//   ?tagline=...         tagline text
+//   ?tagpos=above|below  where the tagline sits relative to the title
+//   ?zoom=1.2            zoom applied to every panel
+//   ?ox=0.1&oy=-0.05     pan applied to every panel
+//
+// After the fonts load and the first paint, the editor calls markReady(),
+// which raises window.__shotReady so the screenshot tool knows the scene
+// is settled.
 
-function markActive(selector, attr, value) {
-  document.querySelectorAll(selector).forEach((b) => b.classList.toggle('active', b.dataset[attr] === value));
+/** The bundled sample photos, by their short id. */
+export const SAMPLE_PHOTOS = {
+  pier: 'samples/pier.jpg',
+  boulevard: 'samples/boulevard.jpg',
+};
+
+/** Parse one `WxH` size string; null when it is not shaped like one. */
+function parseSize(raw) {
+  if (!raw) return null;
+  const m = /^(\d+)x(\d+)$/.exec(raw.trim());
+  if (!m) return null;
+  const w = Number(m[1]);
+  const h = Number(m[2]);
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w < 16 || h < 16 || w > 4096 || h > 4096) return null;
+  return { w, h };
 }
 
-export async function runShot(shot, query, state, helpers) {
-  if (shot === 'cover') document.body.classList.add('shot-cover');
-  const canvas = document.getElementById('cover');
+/** Parse one float query value; `fallback` when it is missing or not a number. */
+function parseNumber(raw, fallback) {
+  if (raw === null || raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
 
-  const size = query.get('size');
-  if (size && helpers.EXPORT_SIZES[size]) {
-    const [w, h] = helpers.EXPORT_SIZES[size];
-    state.size = size;
-    canvas.width = w;
-    canvas.height = h;
-    markActive('#sizes button', 'size', size);
-  }
-  const layout = query.get('layout');
-  if (layout && LAYOUTS.includes(layout)) {
-    state.layout = layout;
-    markActive('#layouts button', 'layout', layout);
-  }
-  const grade = query.get('grade');
-  if (grade && GRADES[grade]) {
-    state.grade = grade;
-    markActive('#grades button', 'grade', grade);
-  }
-  state.caption = query.get('caption') ?? 'Sunset Heist';
-  state.tagline = query.get('tagline') ?? 'ONE LAST SCORE';
-  state.captionPos = query.get('pos') ?? 'bottom';
-  document.getElementById('caption').value = state.caption;
-  document.getElementById('tagline').value = state.tagline;
+/** Read the scene description out of a query string (location.search). */
+export function readScene(search) {
+  const q = new URLSearchParams(search || '');
+  const photos = [q.get('photo'), q.get('photo2'), q.get('photo3'), q.get('photo4')]
+    .map((id) => (id && SAMPLE_PHOTOS[id] ? id : null));
+  return {
+    mode: q.get('shot') === 'cover' ? 'cover' : 'editor',
+    size: parseSize(q.get('size')) || { w: 1080, h: 1350 },
+    layout: q.get('layout') || null,
+    grade: q.get('grade') || null,
+    photos,
+    caption: q.get('caption'),
+    tagline: q.get('tagline'),
+    taglinePos: q.get('tagpos') === 'below' ? 'below' : q.get('tagpos') === 'above' ? 'above' : null,
+    zoom: parseNumber(q.get('zoom'), null),
+    ox: parseNumber(q.get('ox'), null),
+    oy: parseNumber(q.get('oy'), null),
+  };
+}
 
-  await helpers.loadSamples();
-  // Fill the panels from the library images (same objects the editor shows,
-  // so the panel dropdown names them): hero photo on the big panel, the
-  // second sample on the rest; grid alternates the two.
-  const lib = helpers.getLibrary();
-  const pick = (name) => lib.find((e) => e.name.toLowerCase().includes(name))?.img ?? lib[0]?.img ?? null;
-  const hero = pick(query.get('photo') ?? 'boulevard');
-  const second = pick(query.get('photo2') ?? 'pier');
-  const count = PANEL_COUNT[state.layout];
-  for (let i = 0; i < count; i++) {
-    const photo = state.layout === 'grid' ? (i % 2 === 0 ? hero : second) : (i === 0 ? hero : second);
-    state.panels[i] = { photo, zoom: 1, ox: 0, oy: 0 };
+/** Load one sample photo by id; resolves to the Image once it decodes. */
+export function loadSamplePhoto(id) {
+  return new Promise((resolve, reject) => {
+    const src = SAMPLE_PHOTOS[id];
+    if (!src) {
+      reject(new Error(`unknown sample photo: ${id}`));
+      return;
+    }
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`could not load ${src}`));
+    img.src = src;
+  });
+}
+
+/**
+ * Wait for the display font to be usable, giving up after a few seconds so
+ * a scene never hangs on a font that will not come.
+ */
+export function waitForFonts(timeoutMs = 4000) {
+  const ready = (document.fonts ? document.fonts.ready : Promise.resolve()).catch(() => undefined);
+  const timer = new Promise((resolve) => setTimeout(resolve, timeoutMs));
+  const loads = [];
+  if (document.fonts && document.fonts.load) {
+    loads.push(document.fonts.load('32px Anton').catch(() => undefined));
+    loads.push(document.fonts.load('16px Anton').catch(() => undefined));
   }
-  // A gentle zoom on the hero panel makes the cover feel composed, not pasted.
-  if (state.panels[0]) state.panels[0].zoom = 1.12;
-  helpers.redraw();
-  try {
-    await document.fonts.load('400 40px Anton');
-    await document.fonts.ready;
-  } catch (_) { /* Anton falls back to a heavy sans-serif */ }
-  helpers.redraw();
-  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  return Promise.race([Promise.all([ready, ...loads]).then(() => undefined), timer]);
+}
+
+/** Tell the screenshot tool the scene is painted and settled. */
+export function markReady() {
   window.__shotReady = true;
 }
