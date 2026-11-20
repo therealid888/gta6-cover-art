@@ -1,40 +1,91 @@
-// Vice Cover Studio — a gta6-cover-art-01 entry (Node 22, standard library only): the app is this directory's
-// app/ folder, plain static files a desktop browser loads offline (app/index.html and its ES modules, the vendored
-// Anton display font under app/fonts/, no library and no network request), and the program hands it in. It copies
-// app/ and screenshots/ from beside this file to /output and writes /output/dossier.json, the summary the judge
-// reads, with the vendored make.fun library. The app turns the user's own photos into multi-panel GTA-style poster
-// cover art — layouts, per-panel crop and zoom, bold Anton caption and tagline, Vice City sunset and neon grades —
-// exported as a PNG in 1080 x 1080, 1080 x 1350 or 1920 x 1080. Put your 3 or 4 PNG or JPEG screenshots in
-// screenshots/ (the first by name is the cover) and run it.
+// Vice Cover Studio — the entry program for gta6-cover-art-01 (Node 22,
+// standard library only).
 //
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
+// It hands the app in: it copies app/ and screenshots/ from beside this
+// file into the output directory and writes the dossier the judge reads,
+// using buildDossier from the kit's vendored library. Outside the grader,
+// MAKEFUN_OUTPUT_DIR stands in for /output:
+//
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-app.ts';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const repoRoot = dirname(fileURLToPath(import.meta.url));
+const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'app'), join(out, 'app'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+/** Copy a directory tree, files and subdirectories, into a fresh folder. */
+function copyTree(from: string, to: string): number {
+  mkdirSync(to, { recursive: true });
+  let copied = 0;
+  for (const entry of readdirSync(from, { withFileTypes: true })) {
+    const src = join(from, entry.name);
+    const dst = join(to, entry.name);
+    if (entry.isDirectory()) {
+      copied += copyTree(src, dst);
+    } else if (entry.isFile()) {
+      copyFileSync(src, dst);
+      copied++;
+    }
+  }
+  return copied;
+}
 
-// The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the
-// scorer would refuse (more than 4 screenshots or one over 256 KiB; more than 993 files in app/ or 48 MiB of app
-// files, in all, or a path under app/ over 1000 bytes: app/ counts beside /output's own 1000-entry cap, its
-// screenshots/ and dossier.json).
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, {
+function main(): void {
+  const appDir = join(repoRoot, 'app');
+  const shotsDir = join(repoRoot, 'screenshots');
+  if (!existsSync(appDir) || !statSync(appDir).isDirectory()) {
+    throw new Error(`app/ not found beside main.ts (${appDir})`);
+  }
+  if (!existsSync(shotsDir) || !statSync(shotsDir).isDirectory()) {
+    throw new Error(`screenshots/ not found beside main.ts (${shotsDir})`);
+  }
+
+  mkdirSync(outputDir, { recursive: true });
+  // Clear any earlier copy first, so a stale file from a previous build
+  // can never leak into this dossier.
+  for (const sub of ['app', 'screenshots']) {
+    rmSync(join(outputDir, sub), { recursive: true, force: true });
+  }
+  const appFiles = copyTree(appDir, join(outputDir, 'app'));
+  const shotFiles = copyTree(shotsDir, join(outputDir, 'screenshots'));
+
+  const dossier = buildDossier(outputDir, {
     text_max_bytes: 163840,
     screenshots: { max: 4, max_bytes: 262144 },
     app_max_files: 993,
     app_max_bytes: 50331648,
-    app_path_max_bytes: 1000,
-  }),
-);
+  });
+  // buildDossier hands back bytes, not a string: decode them to text
+  // before parsing, or JSON.parse would read the byte list as numbers.
+  const dossierText = typeof dossier === 'string'
+    ? dossier
+    : Buffer.from(dossier as Uint8Array).toString('utf8');
+  // Read the dossier back and prove it is well-formed JSON under the
+  // 1.5 MiB cap, instead of trusting the bytes we just wrote.
+  const parsed = JSON.parse(dossierText) as Record<string, unknown>;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('dossier.json did not parse as a JSON object');
+  }
+  const dossierBytes = Buffer.byteLength(dossierText, 'utf8');
+  if (dossierBytes >= 1572864) {
+    throw new Error(`dossier.json is ${dossierBytes} bytes, over the 1.5 MiB cap`);
+  }
+  writeFileSync(join(outputDir, 'dossier.json'), dossierText);
+  console.log(
+    `Vice Cover Studio: copied ${appFiles} app files and ${shotFiles} screenshots, ` +
+      `dossier.json is ${dossierBytes} bytes`,
+  );
+}
+
+main();
